@@ -1,4 +1,4 @@
-import profilePhoto from "@/assets/images/profile.png";
+import profilePhoto from "@/assets/images/profile.webp";
 
 // Edit this file with your real details.
 export const profile = {
