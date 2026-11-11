@@ -22,7 +22,8 @@ dist-ssr
 *.sln
 *.sw?
 
-# Environment variables
+# Environment variables — never commit ANY env file (no exceptions)
 .env
 .env.*
-!.env.example
+*.env
+.env.example

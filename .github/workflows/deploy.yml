@@ -1,0 +1,76 @@
+name: Deploy to GitHub Pages
+
+# Manual only — the site deploys ONLY when you click "Run workflow" on GitHub.
+# There is NO push/schedule trigger, so nothing can ever deploy automatically.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  # ── Security gate ── runs first. If anything suspicious is found the whole
+  # deploy is blocked (build/deploy jobs need this job to pass).
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reject any committed env file
+        run: |
+          found=$(git ls-files | grep -E '(^|/)\.env($|\.)' || true)
+          if [ -n "$found" ]; then
+            echo "::error::Committed env file detected — blocking deploy:"; echo "$found"; exit 1
+          fi
+          echo "OK: no env files committed."
+
+      - name: Reject install / lifecycle scripts in package.json
+        run: |
+          if grep -nE '"(pre|post)?install"[[:space:]]*:' package.json; then
+            echo "::error::package.json defines an install script — blocking deploy."; exit 1
+          fi
+          echo "OK: no install scripts in package.json."
+
+      - name: Scan source for malware signatures
+        run: |
+          pattern='eval\(|atob\(|btoa\(|fromCharCode|child_process|execSync|spawnSync|node-fetch|catbox|AUTH_API_KEY|createRequire|new Function'
+          hits=$(grep -rEnI \
+            --include='*.ts' --include='*.tsx' --include='*.js' \
+            --include='*.cjs' --include='*.mjs' --include='*.json' --include='*.html' \
+            "$pattern" . || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Suspicious code pattern detected — blocking deploy:"; echo "$hits"; exit 1
+          fi
+          echo "OK: security scan passed, no suspicious patterns."
+
+  build:
+    needs: security-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --ignore-scripts
+      - run: pnpm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
